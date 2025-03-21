@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>画像抽出ツール</title>
+    <link rel="stylesheet" href="css/style.css">
+    <!-- JSZipライブラリの読み込み -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <!-- FileSaverライブラリの読み込み -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Webページ画像抽出ツール</h1>
+            <p>URLを入力して、Webページから画像を抽出しダウンロードできます</p>
+        </header>
+
+        <main>
+            <section class="input-section">
+                <form id="url-form">
+                    <div class="form-group">
+                        <label for="url-input">WebページのURL:</label>
+                        <input type="url" id="url-input" placeholder="https://example.com" required>
+                    </div>
+                    <button type="submit" id="extract-btn">画像を抽出</button>
+                </form>
+                <div class="loader" id="loader">
+                    <div class="spinner"></div>
+                    <p>画像を抽出中...</p>
+                </div>
+            </section>
+
+            <section class="results-section" id="results-section">
+                <div class="results-header">
+                    <h2>抽出結果 (<span id="image-count">0</span>枚の画像)</h2>
+                    <div class="actions">
+                        <div class="select-all-container">
+                            <label class="select-all-label">
+                                <input type="checkbox" id="master-checkbox"> 全選択
+                            </label>
+                        </div>
+                        <button id="select-all-btn">すべて選択</button>
+                        <button id="deselect-all-btn">選択解除</button>
+                        <button id="download-selected-btn" disabled>選択した画像をダウンロード</button>
+                        <button id="download-all-btn" disabled>すべての画像をZIPでダウンロード</button>
+                    </div>
+                </div>
+                <div class="filter-options">
+                    <div class="filter-row">
+                        <label>
+                            <input type="checkbox" id="filter-small" checked>
+                            小さい画像を表示 (100px未満)
+                        </label>
+                        
+                        <div class="min-size-filter">
+                            <label for="min-width">最小幅:</label>
+                            <input type="number" id="min-width" min="0" value="100"> px
+                            <label for="min-height">最小高さ:</label>
+                            <input type="number" id="min-height" min="0" value="100"> px
+                        </div>
+                    </div>
+                    
+                    <div class="filter-row">
+                        <div class="format-filter">
+                            <span>形式フィルター:</span>
+                            <label><input type="checkbox" name="format-filter" value="jpg" checked> JPEG</label>
+                            <label><input type="checkbox" name="format-filter" value="png" checked> PNG</label>
+                            <label><input type="checkbox" name="format-filter" value="webp" checked> WebP</label>
+                            <label><input type="checkbox" name="format-filter" value="gif" checked> GIF</label>
+                            <label><input type="checkbox" name="format-filter" value="svg" checked> SVG</label>
+                            <label><input type="checkbox" name="format-filter" value="other" checked> その他</label>
+                        </div>
+                        
+                        <div class="sort-options">
+                            <label for="sort-by">並び替え:</label>
+                            <select id="sort-by">
+                                <option value="size_desc">サイズ（大→小）</option>
+                                <option value="size_asc">サイズ（小→大）</option>
+                                <option value="width_desc">幅（大→小）</option>
+                                <option value="height_desc">高さ（大→小）</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="filter-row">
+                        <div class="quality-filter">
+                            <span>画像品質:</span>
+                            <label><input type="checkbox" id="filter-original" checked> 元画像を優先</label>
+                            <label><input type="checkbox" id="filter-high-res" checked> 高解像度のみ</label>
+                            <label><input type="checkbox" id="filter-thumbnails"> サムネイルを含む</label>
+                        </div>
+                        
+                        <div class="site-filter">
+                            <span>サイト対応:</span>
+                            <label><input type="checkbox" name="site-filter" value="google" checked> Google</label>
+                            <label><input type="checkbox" name="site-filter" value="irasutoya" checked> いらすとや</label>
+                            <label><input type="checkbox" name="site-filter" value="bing" checked> Bing</label>
+                            <label><input type="checkbox" name="site-filter" value="yahoo" checked> Yahoo</label>
+                            <label><input type="checkbox" name="site-filter" value="illustac" checked> イラストAC</label>
+                            <label><input type="checkbox" name="site-filter" value="pixiv" checked> Pixiv</label>
+                        </div>
+                    </div>
+                    
+                    <div class="filter-actions">
+                        <button id="apply-filter">フィルター適用</button>
+                        <button id="quick-100px-filter">100px以上の画像のみ表示</button>
+                        <button id="search-mode-btn">検索エンジンモード</button>
+                    </div>
+                </div>
+                <div class="images-container" id="images-container">
+                    <!-- 画像がここに表示されます -->
+                    <div class="no-images" id="no-images">
+                        <p>URLを入力して画像を抽出してください</p>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <footer>
+            <p>© 2025 画像抽出ツール - プライバシーに配慮してご利用ください</p>
+        </footer>
+    </div>
+
+    <script src="js/script.js"></script>
+</body>
+</html>
