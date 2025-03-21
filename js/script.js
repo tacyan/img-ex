@@ -366,10 +366,12 @@ async function handleFreepikSearchUrl(url) {
         }
         
         // 特殊な文字や空白の処理
-        // Freepikでは、空白を含む検索クエリ（「花のイラスト　綺麗」など）が問題を引き起こす可能性がある
+        // Freepikでは、空白を含む検索クエリ（スペースを含む複数キーワードの組み合わせなど）が問題を引き起こす可能性がある
         let processedQuery = normalizeSearchQuery(decodedQuery);
         let processedLastValue = normalizeSearchQuery(decodedLastValue);
         
+        
+        // 特殊な文字や空白の処理
         // 正規化された検索クエリをログに表示
         if (processedQuery !== decodedQuery) {
             console.log(`検索クエリを正規化: '${decodedQuery}' → '${processedQuery}'`);
@@ -1337,7 +1339,7 @@ function extractFreepikImages(doc, baseUrl) {
             '[data-testid="resource-card"]',
             '[data-testid="search-item"]',
             '[data-view="grid"] > div',
-            // 複数キーワード検索結果のコンテナ (花のイラスト　綺麗 のようなパターン)
+            // 複数キーワード検索結果のコンテナ (複数のキーワードを含む検索パターン)
             '.multiple-keywords-result-item',
             '.complex-search-result-item',
             // 特殊コンテナ
@@ -1595,10 +1597,14 @@ function extractFreepikImages(doc, baseUrl) {
                 }
                 
                 // 4. クエリ結果の特殊パターン (特に複合検索の場合)
-                if (content.includes('花のイラスト') || 
-                    content.includes('綺麗') || 
-                    content.includes('複合検索') ||
-                    content.includes('複数キーワード')) {
+                if (content.includes('複合検索') ||
+                    content.includes('複数キーワード') ||
+                    // 画像URLパターンの検出（特殊なURLパターンが含まれているか確認）
+                    /"previewUrl":"([^"]+)"/i.test(content) ||
+                    /"thumbnailUrl":"([^"]+)"/i.test(content) ||
+                    /"smallThumbnailUrl":"([^"]+)"/i.test(content) ||
+                    /"largeImageUrl":"([^"]+)"/i.test(content) ||
+                    /"originalImageUrl":"([^"]+)"/i.test(content)) {
                     
                     const specialPatterns = [
                         /"previewUrl":"([^"]+)"/g,
