@@ -84,7 +84,16 @@ document.addEventListener('DOMContentLoaded', () => {
         if (autoUrl) {
             const urlInput = document.getElementById('url-input');
             if (urlInput) {
-                urlInput.value = decodeURIComponent(autoUrl);
+                // デコードして表示用にする
+                try {
+                    // 完全な日本語表示にするためにgetDisplayUrlを使用
+                    const decodedUrl = getDisplayUrl(decodeURIComponent(autoUrl));
+                    urlInput.value = decodedUrl;
+                } catch (e) {
+                    // エラー時は通常のデコードを使用
+                    urlInput.value = decodeURIComponent(autoUrl);
+                }
+                
                 // 少し遅延させてフォームを送信
                 setTimeout(() => {
                     if (urlForm) urlForm.dispatchEvent(new Event('submit'));
@@ -119,18 +128,38 @@ async function handleFormSubmit(event) {
         return;
     }
     
-    // 元のURLを保存
+    // URLをユーザーフレンドリーな表示にする
+    try {
+        const displayUrl = getDisplayUrl(url);
+        if (displayUrl !== url) {
+            urlInput.value = displayUrl;
+            // ユーザーに日本語表示を見せるためにURLを更新
+            // 実際の検索処理では、エンコードされたURLを使用する
+            console.log('表示用URL:', displayUrl);
+        }
+    } catch (e) {
+        console.warn('URL表示変換エラー:', e);
+    }
+    
+    // 元のURLを保存（表示用でなく、実際の処理用）
     originalUrl = url;
     
     // ローディング表示
     const loader = document.getElementById('loader');
     if (loader) {
-    loader.style.display = 'flex';
+        loader.style.display = 'flex';
     }
     
     try {
-        // ローカルのプロキシサーバーを使用
-        const proxyUrl = `/api/fetch?url=${encodeURIComponent(url)}`;
+        // 検索エンジンURLかどうかを確認して適切に処理
+        let proxyUrl = '';
+        if (isSearchEngineUrl(url)) {
+            // 検索エンジンURLを適切に処理（非同期処理）
+            proxyUrl = await handleSearchEngineUrl(url);
+        } else {
+            // 通常のプロキシURLを使用
+            proxyUrl = `/api/fetch?url=${encodeURIComponent(url)}`;
+        }
         
         // HTMLコンテンツを取得
         const response = await fetch(proxyUrl);
@@ -150,8 +179,281 @@ async function handleFormSubmit(event) {
     } finally {
         // ローディング非表示
         if (loader) {
-        loader.style.display = 'none';
+            loader.style.display = 'none';
         }
+    }
+}
+
+// 検索エンジンURLかどうかを判定する関数
+function isSearchEngineUrl(url) {
+    const lowerUrl = url.toLowerCase();
+    
+    // 主要な検索エンジンとパターンを検出
+    return (
+        // Google
+        (lowerUrl.includes('google.com') && (lowerUrl.includes('/search') || lowerUrl.includes('?q='))) ||
+        // Yahoo
+        (lowerUrl.includes('yahoo.co.jp') && (lowerUrl.includes('/search') || lowerUrl.includes('?query='))) ||
+        // Bing
+        (lowerUrl.includes('bing.com') && (lowerUrl.includes('/search') || lowerUrl.includes('?q='))) ||
+        // Freepik - 検索クエリとパスベースの両方を対応
+        (lowerUrl.includes('freepik.com') && (
+            lowerUrl.includes('/search') ||  // クエリベース: /search?query=...
+            lowerUrl.includes('/vectors/') || // パスベース: /vectors/...
+            lowerUrl.includes('/photos/') ||
+            lowerUrl.includes('/premium/') ||
+            lowerUrl.includes('/ai-image/')
+        )) ||
+        // 一般的な検索パターン
+        (lowerUrl.includes('search') && (
+            lowerUrl.includes('?q=') || 
+            lowerUrl.includes('?query=') || 
+            lowerUrl.includes('?keyword=') ||
+            lowerUrl.includes('?search=')
+        ))
+    );
+}
+
+// 検索エンジンURLを処理する関数
+async function handleSearchEngineUrl(url) {
+    console.log('検索エンジンURLを処理します:', url);
+    
+    try {
+        // URLオブジェクトを作成
+        const urlObj = new URL(url);
+        const lowerUrl = url.toLowerCase();
+        
+        // URLの種類を識別
+        const isFreepikUrl = lowerUrl.includes('freepik.com');
+        const isFreepikSearchPath = isFreepikUrl && lowerUrl.includes('/search');
+        const isFreepikVectorsPath = isFreepikUrl && (
+            lowerUrl.includes('/vectors/') || 
+            lowerUrl.includes('/photos/') || 
+            lowerUrl.includes('/premium/') ||
+            lowerUrl.includes('/ai-image/')
+        );
+        
+        // Freepikの場合は専用の処理を使用
+        if (isFreepikUrl && (isFreepikSearchPath || isFreepikVectorsPath)) {
+            return await handleFreepikSearchUrl(url);
+        }
+        
+        // 検索パラメータの特定（各検索エンジンで異なるパラメータ名を使用）
+        let searchParam = '';
+        let paramName = '';
+        
+        // 検索エンジン別のパラメータ名を特定
+        if (url.includes('google.com')) {
+            paramName = 'q';
+        } else if (url.includes('yahoo.co.jp')) {
+            paramName = 'p';
+            if (!urlObj.searchParams.has('p')) paramName = 'query';
+        } else if (url.includes('bing.com')) {
+            paramName = 'q';
+        } else {
+            // 一般的な検索パラメータ名を試す
+            const possibleParams = ['q', 'query', 'keyword', 'search', 'p'];
+            for (const param of possibleParams) {
+                if (urlObj.searchParams.has(param)) {
+                    paramName = param;
+                    break;
+                }
+            }
+        }
+        
+        // 検索クエリを取得
+        if (paramName) {
+            searchParam = urlObj.searchParams.get(paramName) || '';
+            
+            if (searchParam) {
+                // すでにエンコードされている場合はデコードして表示
+                const decodedQuery = decodeURIComponent(searchParam);
+                console.log(`検索クエリ (${paramName}): ${decodedQuery}`);
+                
+                // URLの表示を更新
+                const urlInput = document.getElementById('url-input');
+                if (urlInput) {
+                    const displayUrl = getDisplayUrl(url);
+                    if (displayUrl !== urlInput.value) {
+                        urlInput.value = displayUrl;
+                    }
+                }
+            }
+        }
+    } catch (error) {
+        console.error('検索URL処理中にエラーが発生しました:', error);
+    }
+    
+    // 通常のエンコードを使用
+    return `/api/fetch?url=${encodeURIComponent(url)}`;
+}
+
+// Freepikの検索URLを処理する関数
+async function handleFreepikSearchUrl(url) {
+    console.log('Freepikの検索URLを処理します:', url);
+    
+    try {
+        // URLオブジェクトを作成
+        const urlObj = new URL(url);
+        
+        // FreepikのURL形式の検出
+        const isSearchPath = url.includes('/search');
+        const isVectorsPath = url.includes('/vectors/') || url.includes('/photos/') || 
+                             url.includes('/premium/') || url.includes('/ai-image/');
+        
+        // URLパス部分から検索キーワードを取得（/vectors/鳥のイラスト のようなパターン）
+        let searchKeyword = '';
+        let searchType = '';
+        
+        if (isVectorsPath) {
+            // パスからキーワードを抽出（/vectors/鳥のイラスト から鳥のイラスト を取得）
+            const pathSegments = urlObj.pathname.split('/').filter(segment => segment);
+            if (pathSegments.length >= 2) {
+                // 最初のセグメントを種類として扱う（vectors, photos など）
+                searchType = pathSegments[0];
+                // 2番目のセグメントをキーワードとして扱う
+                searchKeyword = decodeURIComponent(pathSegments[1]);
+                
+                // ハッシュタグ部分を削除（#from_element=categories_trends など）
+                if (searchKeyword.includes('#')) {
+                    searchKeyword = searchKeyword.split('#')[0];
+                }
+                
+                console.log(`パスから抽出 - タイプ: ${searchType}, キーワード: ${searchKeyword}`);
+            }
+        }
+        
+        // 検索パラメータを取得
+        const queryParam = urlObj.searchParams.get('query') || '';
+        const typeParam = urlObj.searchParams.get('type') || '';
+        const formatParam = urlObj.searchParams.get('format') || '';
+        const lastFilterParam = urlObj.searchParams.get('last_filter') || '';
+        const lastValueParam = urlObj.searchParams.get('last_value') || '';
+        
+        // 追加パラメータの取得 (ページング、ソート等)
+        const pageParam = urlObj.searchParams.get('page') || '';
+        const sortParam = urlObj.searchParams.get('sort') || '';
+        const orderParam = urlObj.searchParams.get('order') || '';
+        const styleParam = urlObj.searchParams.get('style') || '';
+        const colorParam = urlObj.searchParams.get('color') || '';
+        
+        // パラメータをデコード
+        const decodedQuery = queryParam ? decodeURIComponent(queryParam) : '';
+        const decodedType = typeParam ? decodeURIComponent(typeParam) : '';
+        const decodedFormat = formatParam ? decodeURIComponent(formatParam) : '';
+        const decodedLastFilter = lastFilterParam ? decodeURIComponent(lastFilterParam) : '';
+        const decodedLastValue = lastValueParam ? decodeURIComponent(lastValueParam) : '';
+        
+        // 検索情報をコンソールに表示
+        if (isSearchPath) {
+            console.log(`検索パラメータ - クエリ: ${decodedQuery}, タイプ: ${decodedType}, フォーマット: ${decodedFormat}`);
+            if (lastFilterParam) {
+                console.log(`追加フィルター - ${decodedLastFilter}: ${decodedLastValue}`);
+            }
+            
+            // 追加パラメータの表示
+            if (pageParam || sortParam || orderParam || styleParam || colorParam) {
+                console.log(`その他のパラメータ - ページ: ${pageParam}, ソート: ${sortParam}, 順序: ${orderParam}, スタイル: ${styleParam}, 色: ${colorParam}`);
+            }
+        }
+        
+        // URLの表示をユーザーフレンドリーに更新
+        const urlInput = document.getElementById('url-input');
+        if (urlInput) {
+            // 表示用のURLを生成
+            const displayUrl = getDisplayUrl(url);
+            urlInput.value = displayUrl;
+        }
+        
+        // 特殊な文字や空白の処理
+        // Freepikでは、空白を含む検索クエリ（「花のイラスト　綺麗」など）が問題を引き起こす可能性がある
+        let processedQuery = normalizeSearchQuery(decodedQuery);
+        let processedLastValue = normalizeSearchQuery(decodedLastValue);
+        
+        // 正規化された検索クエリをログに表示
+        if (processedQuery !== decodedQuery) {
+            console.log(`検索クエリを正規化: '${decodedQuery}' → '${processedQuery}'`);
+        }
+        if (processedLastValue !== decodedLastValue) {
+            console.log(`last_valueを正規化: '${decodedLastValue}' → '${processedLastValue}'`);
+        }
+        
+        // 最終的なURLを構築
+        let processedUrl;
+        
+        if (isSearchPath) {
+            // 検索パスの場合はパラメータを適切に再エンコード
+            const processedUrlObj = new URL(url);
+            
+            // 検索クエリの特殊処理
+            if (queryParam) {
+                // 空白を含む検索クエリを正しく処理
+                const normalizedQuery = processedQuery.trim();
+                processedUrlObj.searchParams.set('query', encodeURIComponent(normalizedQuery));
+            }
+            
+            // 各パラメータを新しく設定し直す
+            if (typeParam) {
+                processedUrlObj.searchParams.set('type', encodeURIComponent(decodedType));
+            }
+            if (formatParam) {
+                processedUrlObj.searchParams.set('format', encodeURIComponent(decodedFormat));
+            }
+            if (lastFilterParam) {
+                processedUrlObj.searchParams.set('last_filter', encodeURIComponent(decodedLastFilter));
+            }
+            if (lastValueParam) {
+                // 空白を含むlast_valueも正しく処理
+                const normalizedLastValue = processedLastValue.trim();
+                processedUrlObj.searchParams.set('last_value', encodeURIComponent(normalizedLastValue));
+            }
+            
+            // その他のパラメータも保持
+            if (pageParam) processedUrlObj.searchParams.set('page', pageParam);
+            if (sortParam) processedUrlObj.searchParams.set('sort', sortParam);
+            if (orderParam) processedUrlObj.searchParams.set('order', orderParam);
+            if (styleParam) processedUrlObj.searchParams.set('style', styleParam);
+            if (colorParam) processedUrlObj.searchParams.set('color', colorParam);
+            
+            processedUrl = processedUrlObj.toString();
+        } else if (isVectorsPath && searchKeyword) {
+            // パスベースの検索URLの場合は、そのまま使用
+            processedUrl = url;
+        } else {
+            // その他のURLの場合はそのまま使用
+            processedUrl = url;
+        }
+        
+        console.log('処理後のURL:', processedUrl);
+        
+        // プロキシURLを返す
+        return `/api/fetch?url=${encodeURIComponent(processedUrl)}`;
+    } catch (error) {
+        console.error('Freepik検索URL処理中にエラーが発生しました:', error);
+    }
+    
+    // エラーがあった場合は通常のエンコードを使用
+    return `/api/fetch?url=${encodeURIComponent(url)}`;
+}
+
+// 検索クエリを正規化する関数（空白や特殊文字を適切に処理）
+function normalizeSearchQuery(query) {
+    if (!query) return '';
+    
+    try {
+        // 半角スペース、全角スペース、タブなどを単一の半角スペースに置換
+        let normalized = query.replace(/[\s\u3000\t\n\r]+/g, ' ');
+        
+        // 前後の空白を削除
+        normalized = normalized.trim();
+        
+        // Freepikの検索に適した形式に変換（+記号を空白に変換）
+        normalized = normalized.replace(/\+/g, ' ');
+        
+        return normalized;
+    } catch (e) {
+        console.warn('クエリの正規化に失敗しました:', e);
+        return query;
     }
 }
 
@@ -186,6 +488,9 @@ function extractImagesFromHtml(html, baseUrl) {
         } else if (hostname.includes('pixiv.net')) {
             // Pixivからの画像抽出
             extractPixivImages(doc, baseUrl);
+        } else if (hostname.includes('freepik.com')) {
+            // Freepikからの画像抽出
+            extractFreepikImages(doc, baseUrl);
         } else {
             // 通常の画像抽出処理
             performStandardImageExtraction(doc, baseUrl);
@@ -948,6 +1253,602 @@ function extractPixivImages(doc, baseUrl) {
     }
 }
 
+// Freepikからの画像抽出
+function extractFreepikImages(doc, baseUrl) {
+    console.log('Freepikからの画像抽出を実行します');
+    
+    let extractedCount = 0;
+    
+    // URLから検索クエリを抽出（日本語対応）
+    try {
+        const url = new URL(baseUrl);
+        
+        // FreepikのURL形式を検出
+        const isSearchPath = baseUrl.includes('/search');
+        const isVectorsPath = baseUrl.includes('/vectors/') || baseUrl.includes('/photos/') || 
+                             baseUrl.includes('/premium/') || baseUrl.includes('/ai-image/');
+        
+        // URLパス部分から検索キーワードを取得
+        if (isVectorsPath) {
+            const pathSegments = url.pathname.split('/').filter(segment => segment);
+            if (pathSegments.length >= 2) {
+                const searchType = pathSegments[0];
+                let searchKeyword = decodeURIComponent(pathSegments[1]);
+                
+                // ハッシュタグ部分を削除
+                if (searchKeyword.includes('#')) {
+                    searchKeyword = searchKeyword.split('#')[0];
+                }
+                
+                console.log(`パス検索 - タイプ: ${searchType}, キーワード: ${searchKeyword}`);
+            }
+        }
+        
+        // クエリパラメータからの検索キーワード取得
+        if (isSearchPath) {
+            // 検索パラメータを取得して日本語表示
+            const query = url.searchParams.get('query') || '';
+            const type = url.searchParams.get('type') || '';
+            const format = url.searchParams.get('format') || '';
+            const lastFilter = url.searchParams.get('last_filter') || '';
+            const lastValue = url.searchParams.get('last_value') || '';
+            
+            if (query) {
+                // 日本語でログ表示
+                const decodedQuery = decodeURIComponent(query);
+                const decodedType = type ? decodeURIComponent(type) : '';
+                const decodedFormat = format ? decodeURIComponent(format) : '';
+                
+                console.log(`Freepik検索クエリ: ${decodedQuery}, タイプ: ${decodedType}, フォーマット: ${decodedFormat}`);
+                
+                if (lastFilter) {
+                    const decodedLastFilter = decodeURIComponent(lastFilter);
+                    const decodedLastValue = decodeURIComponent(lastValue);
+                    console.log(`追加フィルター: ${decodedLastFilter}=${decodedLastValue}`);
+                }
+            }
+        }
+    } catch (e) {
+        console.warn('FreepikのURL解析エラー:', e);
+    }
+    
+    // 1. リスト表示セクションから画像を抽出 (最も信頼性の高い方法)
+    const extractImagesFromListings = () => {
+        const selectors = [
+            // モダン検索結果のリスト要素 (最新のDOM構造)
+            '.showcase__list .showcase__item',
+            '.listing-item', 
+            '.listing__item',
+            '.listing-grid__item',
+            '.grid-item',
+            '.grid-cell',
+            '.card',
+            '.card--resource',
+            '.figure--image',
+            '.figure--vector',
+            // 検索結果リスト (旧レイアウト対応)
+            '.resources-list .resources-list-item',
+            '.resources__list .resources__item',
+            '.search-results-list .search-results-item',
+            // カテゴリリスト (旧レイアウト対応)
+            '.category-list-item',
+            '.category-item',
+            // 最新の検索結果グリッド (2023年以降)
+            '[data-testid="resource-card"]',
+            '[data-testid="search-item"]',
+            '[data-view="grid"] > div',
+            // 複数キーワード検索結果のコンテナ (花のイラスト　綺麗 のようなパターン)
+            '.multiple-keywords-result-item',
+            '.complex-search-result-item',
+            // 特殊コンテナ
+            '.related-keywords-container [class*="item"]',
+            '.related-keywords-container [class*="card"]',
+            // フォールバック - 汎用コンテナ
+            '[data-view="list"] > div',
+            '[data-view="grid"] > div',
+            '[data-role="search-results"] > div > div',
+            '[data-role="resource-card"]',
+            // シンプルなimg検索 (最後の手段)
+            'figure', 
+            '.img-container'
+        ];
+        
+        let foundItems = 0;
+        
+        // 各セレクタを試行
+        for (const selector of selectors) {
+            const items = doc.querySelectorAll(selector);
+            if (items.length > 0) {
+                console.log(`Freepik: ${selector} で ${items.length} 個のリスト要素を検出`);
+                
+                items.forEach(item => {
+                    // 1. 画像要素を探す
+                    const images = item.querySelectorAll('img');
+                    if (images.length > 0) {
+                        images.forEach(img => {
+                            // 通常の画像ソース属性を処理
+                            extractImageAttributes(img);
+                            foundItems++;
+                        });
+                    }
+                    
+                    // 2. 背景画像スタイルを探す
+                    const bgElements = item.querySelectorAll('[style*="background-image"]');
+                    if (bgElements.length > 0) {
+                        bgElements.forEach(el => extractBackgroundImage(el));
+                        foundItems++;
+                    }
+                    
+                    // 3. 直接スタイル属性を持つ要素を探す
+                    if (item.hasAttribute('style') && item.getAttribute('style').includes('background-image')) {
+                        extractBackgroundImage(item);
+                        foundItems++;
+                    }
+                    
+                    // 4. data-* 属性を持つ要素を探す
+                    const dataAttributes = ['data-src', 'data-bg', 'data-image', 'data-lazy', 'data-srcset'];
+                    dataAttributes.forEach(attr => {
+                        const elements = item.querySelectorAll(`[${attr}]`);
+                        if (elements.length > 0) {
+                            elements.forEach(el => {
+                                const value = el.getAttribute(attr);
+                                if (value) {
+                                    addImageIfNotExists(resolveUrl(value, baseUrl), baseUrl);
+                                    extractedCount++;
+                                    foundItems++;
+                                }
+                            });
+                        }
+                    });
+                    
+                    // 5. プレミアムバッジがある場合の特殊処理
+                    const premiumBadge = item.querySelector('.premium-badge, .badge--premium, [class*="premium"]');
+                    if (premiumBadge) {
+                        // バッジがある場合、この要素内のすべての画像をより積極的に取得
+                        const allElements = item.querySelectorAll('*');
+                        allElements.forEach(el => {
+                            if (el.tagName === 'IMG') {
+                                extractImageAttributes(el);
+                            } else if (el.hasAttribute('style') && el.getAttribute('style').includes('background-image')) {
+                                extractBackgroundImage(el);
+                            }
+                        });
+                    }
+                });
+                
+                if (foundItems > 0) break; // 有効なセレクタが見つかったら終了
+            }
+        }
+        
+        return foundItems;
+    };
+    
+    // 画像要素から属性を抽出するヘルパー関数
+    const extractImageAttributes = (img) => {
+        // src属性
+        const src = img.getAttribute('src');
+        if (src && !src.includes('data:image/')) {
+            addImageIfNotExists(resolveUrl(src, baseUrl), baseUrl);
+            extractedCount++;
+        }
+        
+        // data-src属性 (遅延読み込み)
+        const dataSrc = img.getAttribute('data-src');
+        if (dataSrc) {
+            addImageIfNotExists(resolveUrl(dataSrc, baseUrl), baseUrl);
+            extractedCount++;
+        }
+        
+        // data-bg属性 (背景画像)
+        const dataBg = img.getAttribute('data-bg');
+        if (dataBg) {
+            addImageIfNotExists(resolveUrl(dataBg, baseUrl), baseUrl);
+            extractedCount++;
+        }
+        
+        // srcset属性 (レスポンシブ画像)
+        const srcset = img.getAttribute('srcset');
+        if (srcset) {
+            srcset.split(',').forEach(part => {
+                const trimmedPart = part.trim();
+                const spaceIndex = trimmedPart.lastIndexOf(' ');
+                if (spaceIndex !== -1) {
+                    const srcsetUrl = trimmedPart.substring(0, spaceIndex);
+                    addImageIfNotExists(resolveUrl(srcsetUrl, baseUrl), baseUrl);
+                    extractedCount++;
+                }
+            });
+        }
+        
+        // 追加の属性チェック
+        ['data-original', 'data-lazy-src', 'data-url', 'data-image'].forEach(attr => {
+            const value = img.getAttribute(attr);
+            if (value) {
+                addImageIfNotExists(resolveUrl(value, baseUrl), baseUrl);
+                extractedCount++;
+            }
+        });
+        
+        // 親がaタグの場合、aタグのhref属性から画像URLを推測
+        const parentLink = img.closest('a[href]');
+        if (parentLink) {
+            const href = parentLink.getAttribute('href');
+            if (href && href.match(/\.(jpg|jpeg|png|webp)($|\?)/i)) {
+                addImageIfNotExists(resolveUrl(href, baseUrl), baseUrl);
+                extractedCount++;
+            }
+        }
+    };
+    
+    // 背景画像を抽出するヘルパー関数
+    const extractBackgroundImage = (element) => {
+        if (!element) return;
+        
+        try {
+            const style = element.getAttribute('style');
+            if (style && style.includes('background-image')) {
+                // URL()形式の背景画像抽出 - 複数の可能性を考慮
+                const urlPattern = /background-image\s*:\s*url\(['"]?([^'")]+)['"]?\)/gi;
+                let match;
+                while ((match = urlPattern.exec(style)) !== null) {
+                    if (match[1]) {
+                        addImageIfNotExists(resolveUrl(match[1], baseUrl), baseUrl);
+                        extractedCount++;
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn('背景画像URLの抽出に失敗しました:', e);
+        }
+    };
+    
+    // 2. JSON/スクリプトデータを解析する関数
+    const extractFromScripts = () => {
+        let foundInScripts = 0;
+        
+        // JSONデータを含むスクリプトタグを検索
+        const scripts = doc.querySelectorAll('script:not([src]), script[type="application/ld+json"], script[type="text/javascript"]');
+        
+        scripts.forEach(script => {
+            if (!script.textContent) return;
+            
+            try {
+                const content = script.textContent;
+                
+                // 1. JSONデータ構造を検出（複合検索クエリに特に有効）
+                if (content.includes('searchResults') || 
+                    content.includes('resourcesList') ||
+                    content.includes('searchData') ||
+                    content.includes('__INITIAL_STATE__') ||
+                    content.includes('__APOLLO_STATE__') ||
+                    content.includes('window.SEARCH_RESULTS') ||
+                    content.includes('window.RESOURCES')) {
+                    
+                    // 画像URLパターンを検出（より広範なパターン）
+                    const imagePatterns = [
+                        /"(https?:\/\/[^"]+\.(jpg|jpeg|png|gif|webp|svg))"/gi,
+                        /'(https?:\/\/[^']+\.(jpg|jpeg|png|gif|webp|svg))'/gi,
+                        /url\(['"]?(https?:\/\/[^'")\s]+\.(?:jpg|jpeg|png|gif|webp|svg))['"]?\)/gi,
+                        /"image":"(https?:\/\/[^"]+)"/gi,
+                        /"preview":"(https?:\/\/[^"]+)"/gi,
+                        /"thumbnail":"(https?:\/\/[^"]+)"/gi,
+                        /"src":"(https?:\/\/[^"]+)"/gi,
+                        /"url":"(https?:\/\/[^"]+\.(jpg|jpeg|png|gif|webp|svg))"/gi
+                    ];
+                    
+                    imagePatterns.forEach(pattern => {
+                        let match;
+                        while ((match = pattern.exec(content)) !== null) {
+                            if (match[1]) {
+                                addImageIfNotExists(resolveUrl(match[1], baseUrl), baseUrl);
+                                extractedCount++;
+                                foundInScripts++;
+                            }
+                        }
+                    });
+                    
+                    // 2. window変数の初期化を探す
+                    const stateDataPatterns = [
+                        /window\.__INITIAL_STATE__\s*=\s*({.*?});/s,
+                        /window\.__APOLLO_STATE__\s*=\s*({.*?});/s,
+                        /window\.SEARCH_RESULTS\s*=\s*({.*?});/s,
+                        /window\.RESOURCES\s*=\s*({.*?});/s,
+                        /\.hydrate\s*\(\s*({.*?})\s*,\s*document/s
+                    ];
+                    
+                    stateDataPatterns.forEach(pattern => {
+                        const stateMatch = content.match(pattern);
+                        if (stateMatch && stateMatch[1]) {
+                            try {
+                                // 全体をJSONとしてパースするのではなく、
+                                // 内部の画像URLとなる可能性のあるプロパティを正規表現で検索
+                                const stateContent = stateMatch[1];
+                                imagePatterns.forEach(imgPattern => {
+                                    let imgMatch;
+                                    while ((imgMatch = imgPattern.exec(stateContent)) !== null) {
+                                        if (imgMatch[1]) {
+                                            addImageIfNotExists(resolveUrl(imgMatch[1], baseUrl), baseUrl);
+                                            extractedCount++;
+                                            foundInScripts++;
+                                        }
+                                    }
+                                });
+                            } catch (e) {
+                                console.warn('スクリプト内部データの解析エラー:', e);
+                            }
+                        }
+                    });
+                }
+                
+                // 3. JSON構造全体をパースしてみる (リスク: 大量の無関係なデータ)
+                try {
+                    if (content.startsWith('{') && content.endsWith('}') && 
+                        (content.includes('"image"') || 
+                         content.includes('"url"') || 
+                         content.includes('"thumbnail"'))) {
+                        
+                        const data = JSON.parse(content);
+                        extractImagesFromObject(data);
+                    }
+                } catch (jsonError) {
+                    // JSONパースエラーは無視 - 正規表現ベースの抽出を優先
+                }
+                
+                // 4. クエリ結果の特殊パターン (特に複合検索の場合)
+                if (content.includes('花のイラスト') || 
+                    content.includes('綺麗') || 
+                    content.includes('複合検索') ||
+                    content.includes('複数キーワード')) {
+                    
+                    const specialPatterns = [
+                        /"previewUrl":"([^"]+)"/g,
+                        /"thumbnailUrl":"([^"]+)"/g,
+                        /"smallThumbnailUrl":"([^"]+)"/g,
+                        /"largeImageUrl":"([^"]+)"/g,
+                        /"originalImageUrl":"([^"]+)"/g
+                    ];
+                    
+                    specialPatterns.forEach(pattern => {
+                        let match;
+                        while ((match = pattern.exec(content)) !== null) {
+                            if (match[1]) {
+                                // バックスラッシュをエスケープ解除
+                                const cleanUrl = match[1].replace(/\\/g, '');
+                                addImageIfNotExists(resolveUrl(cleanUrl, baseUrl), baseUrl);
+                                extractedCount++;
+                                foundInScripts++;
+                            }
+                        }
+                    });
+                }
+            } catch (e) {
+                console.warn('スクリプト解析エラー:', e);
+            }
+        });
+        
+        return foundInScripts;
+    };
+    
+    // オブジェクトから再帰的に画像URLを抽出
+    const extractImagesFromObject = (obj, depth = 0) => {
+        if (!obj || depth > 10) return; // 深度制限
+        
+        if (typeof obj === 'object') {
+            if (Array.isArray(obj)) {
+                obj.forEach(item => extractImagesFromObject(item, depth + 1));
+            } else {
+                for (const key in obj) {
+                    const value = obj[key];
+                    
+                    // URLと思われるキーを検出
+                    if (['image', 'url', 'src', 'thumbnail', 'preview', 'contentUrl', 'imageUrl', 'thumbnailUrl', 'largeImageUrl'].includes(key)) {
+                        if (typeof value === 'string' && (value.startsWith('http') || value.startsWith('/'))) {
+                            if (value.match(/\.(jpg|jpeg|png|gif|webp|svg)($|\?)/i) || 
+                                value.includes('/image/') || 
+                                value.includes('/images/') || 
+                                value.includes('/thumb/') ||
+                                value.includes('/preview/')) {
+                                
+                                addImageIfNotExists(resolveUrl(value, baseUrl), baseUrl);
+                                extractedCount++;
+                            }
+                        }
+                    } else if (typeof value === 'object' && value !== null) {
+                        extractImagesFromObject(value, depth + 1);
+                    }
+                }
+            }
+        }
+    };
+    
+    // 3. メタタグから画像を抽出
+    const extractFromMetaTags = () => {
+        let metaImagesCount = 0;
+        
+        // OGイメージ
+        const ogImages = doc.querySelectorAll('meta[property="og:image"], meta[property="og:image:url"], meta[name="twitter:image"]');
+        ogImages.forEach(meta => {
+            const content = meta.getAttribute('content');
+            if (content) {
+                addImageIfNotExists(resolveUrl(content, baseUrl), baseUrl);
+                extractedCount++;
+                metaImagesCount++;
+            }
+        });
+        
+        // ページ内のすべてのメタタグをチェック（画像関連の可能性があるもの）
+        const imageRelatedMeta = doc.querySelectorAll('meta[property*="image"], meta[name*="image"], meta[content*=".jpg"], meta[content*=".png"]');
+        imageRelatedMeta.forEach(meta => {
+            const content = meta.getAttribute('content');
+            if (content && content.match(/https?:\/\/.+\.(jpg|jpeg|png|gif|webp|svg)($|\?)/i)) {
+                addImageIfNotExists(resolveUrl(content, baseUrl), baseUrl);
+                extractedCount++;
+                metaImagesCount++;
+            }
+        });
+        
+        return metaImagesCount;
+    };
+    
+    // 4. 画像要素を直接取得（バックアップ方法）
+    const extractDirectImages = () => {
+        let directImagesCount = 0;
+        
+        // すべての画像要素を検出
+        const allImages = doc.querySelectorAll('img');
+        allImages.forEach(img => {
+            extractImageAttributes(img);
+            directImagesCount++;
+        });
+        
+        // 背景画像を検出
+        const bgElements = doc.querySelectorAll('[style*="background-image"]');
+        bgElements.forEach(el => {
+            extractBackgroundImage(el);
+            directImagesCount++;
+        });
+        
+        return directImagesCount;
+    };
+    
+    // 5. Freepik特有のデータ属性から画像を検出（最近のFreepikサイトで利用）
+    const extractFromDataAttributes = () => {
+        let dataAttrImagesCount = 0;
+        
+        // Freepik特有のデータ属性
+        const dataAttrs = [
+            'data-image',
+            'data-src',
+            'data-srcset',
+            'data-bg',
+            'data-original',
+            'data-preview',
+            'data-thumbnail'
+        ];
+        
+        dataAttrs.forEach(attr => {
+            const elements = doc.querySelectorAll(`[${attr}]`);
+            elements.forEach(el => {
+                const value = el.getAttribute(attr);
+                if (value && value.match(/https?:\/\//)) {
+                    addImageIfNotExists(resolveUrl(value, baseUrl), baseUrl);
+                    extractedCount++;
+                    dataAttrImagesCount++;
+                }
+            });
+        });
+        
+        // Freepikの最新のデータ属性パターン (2023年以降)
+        const modernElements = doc.querySelectorAll('[data-testid*="image"], [data-testid*="resource"], [data-view], [data-role*="image"]');
+        modernElements.forEach(el => {
+            // 要素内の画像を探す
+            const img = el.querySelector('img');
+            if (img) {
+                extractImageAttributes(img);
+                dataAttrImagesCount++;
+            }
+            
+            // スタイル属性を確認
+            if (el.hasAttribute('style') && el.getAttribute('style').includes('background-image')) {
+                extractBackgroundImage(el);
+                dataAttrImagesCount++;
+            }
+        });
+        
+        return dataAttrImagesCount;
+    };
+    
+    // 6. API関連の処理 - Freepikの内部API呼び出しからデータを抽出
+    const extractFromApiCalls = () => {
+        let apiImagesCount = 0;
+        
+        // API呼び出しを示唆するスクリプト
+        const apiScripts = doc.querySelectorAll('script:not([src])');
+        apiScripts.forEach(script => {
+            if (!script.textContent) return;
+            
+            try {
+                const content = script.textContent;
+                
+                // API呼び出しまたはエンドポイント定義を探す
+                if (content.includes('/api/') || 
+                    content.includes('apiUrl') || 
+                    content.includes('apiEndpoint') || 
+                    content.includes('fetch(') || 
+                    content.includes('axios.get(')) {
+                    
+                    // リソースIDを抽出
+                    const resourceIdMatches = content.match(/"id":"([^"]+)"/g) || 
+                                              content.match(/"resourceId":"([^"]+)"/g) || 
+                                              content.match(/"resource_id":"([^"]+)"/g);
+                    
+                    if (resourceIdMatches) {
+                        resourceIdMatches.forEach(match => {
+                            const idMatch = match.match(/"(?:id|resourceId|resource_id)":"([^"]+)"/);
+                            if (idMatch && idMatch[1]) {
+                                const id = idMatch[1];
+                                
+                                // FreepikのリソースID命名規則に基づいてURLを構築
+                                const possibleUrls = [
+                                    `https://img.freepik.com/premium-vector/${id}.jpg`,
+                                    `https://img.freepik.com/free-vector/${id}.jpg`,
+                                    `https://img.freepik.com/premium-photo/${id}.jpg`,
+                                    `https://img.freepik.com/free-photo/${id}.jpg`
+                                ];
+                                
+                                possibleUrls.forEach(url => {
+                                    addImageIfNotExists(url, baseUrl);
+                                    extractedCount++;
+                                    apiImagesCount++;
+                                });
+                            }
+                        });
+                    }
+                }
+            } catch (e) {
+                console.warn('API関連スクリプト解析エラー:', e);
+            }
+        });
+        
+        return apiImagesCount;
+    };
+    
+    // 抽出処理を順に実行
+    console.log('1. リスト要素から画像抽出を試行中...');
+    let listingsCount = extractImagesFromListings();
+    
+    console.log('2. スクリプト/JSONから画像抽出を試行中...');
+    let scriptsCount = extractFromScripts();
+    
+    console.log('3. メタタグから画像抽出を試行中...');
+    let metaCount = extractFromMetaTags();
+    
+    console.log('4. データ属性から画像抽出を試行中...');
+    let dataAttrCount = extractFromDataAttributes();
+    
+    console.log('5. API関連から画像抽出を試行中...');
+    let apiCount = extractFromApiCalls();
+    
+    console.log('6. 直接画像要素から抽出を試行中...');
+    let directCount = extractDirectImages();
+    
+    // 抽出結果のサマリーを表示
+    console.log(`Freepik抽出結果サマリー:
+    - リスト要素: ${listingsCount}個
+    - スクリプト/JSON: ${scriptsCount}個
+    - メタタグ: ${metaCount}個
+    - データ属性: ${dataAttrCount}個
+    - API関連: ${apiCount}個
+    - 直接抽出: ${directCount}個
+    - 合計: ${extractedCount}個の画像候補`);
+    
+    // 画像が見つからなかった場合は標準抽出も実行
+    if (extractedCount === 0) {
+        console.log('Freepikの特殊な画像抽出に失敗したため、標準抽出を実行します');
+        performStandardImageExtraction(doc, baseUrl);
+    }
+}
+
 // 外部CSSから画像を取得
 async function fetchCssImages(cssUrl) {
     try {
@@ -1117,6 +2018,8 @@ function applySearchEngineMode() {
                 checkbox.checked = true;
             } else if (hostname.includes('pixiv.net') && checkbox.value === 'pixiv') {
                 checkbox.checked = true;
+            } else if (hostname.includes('freepik.com') && checkbox.value === 'freepik') {
+                checkbox.checked = true;
             } else {
                 // 特定のサイトでない場合は常に表示
                 checkbox.checked = true;
@@ -1197,6 +2100,8 @@ function applyFilters() {
             } else if (hostname.includes('ac-illust.com') && enabledSites.includes('illustac')) {
                 siteMatch = true;
             } else if (hostname.includes('pixiv.net') && enabledSites.includes('pixiv')) {
+                siteMatch = true;
+            } else if (hostname.includes('freepik.com') && enabledSites.includes('freepik')) {
                 siteMatch = true;
             } else {
                 // 特定のサイトでない場合は常に表示
@@ -1388,8 +2293,31 @@ function applyFilters() {
         // URL
         const urlElement = document.createElement('div');
         urlElement.className = 'image-url';
-        urlElement.textContent = image.url;
-        urlElement.title = image.url;
+        
+        // URL表示をさらに改善（検索エンジンのクエリパラメータを日本語で表示）
+        const displayUrl = getDisplayUrl(image.url);
+        urlElement.textContent = displayUrl;
+        urlElement.title = image.url;  // ホバー時に元のURLを表示
+        
+        // プレミアムコンテンツの場合はバッジを追加
+        if (image.url.includes('premium') || 
+            image.url.includes('getty') || 
+            image.url.includes('shutterstock') || 
+            image.url.includes('istockphoto') ||
+            image.url.includes('adobe.com')) {
+            
+            const premiumBadge = document.createElement('span');
+            premiumBadge.className = 'premium-badge';
+            premiumBadge.textContent = 'Premium';
+            premiumBadge.style.backgroundColor = '#ffc107';
+            premiumBadge.style.color = '#000';
+            premiumBadge.style.padding = '0 4px';
+            premiumBadge.style.borderRadius = '3px';
+            premiumBadge.style.fontSize = '10px';
+            premiumBadge.style.marginLeft = '5px';
+            
+            urlElement.appendChild(premiumBadge);
+        }
         
         // 寸法
         const dimensionsElement = document.createElement('div');
@@ -1665,6 +2593,49 @@ function getFilenameFromUrl(url) {
     } catch (error) {
         console.warn('Invalid URL for filename extraction:', url);
         return 'image';
+    }
+}
+
+// URL表示用にエンコードされた日本語をデコードする
+function getDisplayUrl(url) {
+    try {
+        // URLの各部分をデコードして読みやすくする
+        const urlObj = new URL(url);
+        
+        // パスとクエリパラメータをデコード
+        const decodedPath = decodeURIComponent(urlObj.pathname);
+        const searchParams = new URLSearchParams(urlObj.search);
+        
+        // 各クエリパラメータをデコード
+        const decodedParams = new URLSearchParams();
+        for (const [key, value] of searchParams) {
+            try {
+                const decodedKey = decodeURIComponent(key);
+                const decodedValue = decodeURIComponent(value);
+                decodedParams.append(decodedKey, decodedValue);
+            } catch (e) {
+                // デコードできない場合はそのまま使用
+                decodedParams.append(key, value);
+            }
+        }
+        
+        // デコードしたパラメータを文字列に変換（Google検索形式）
+        let decodedSearch = '';
+        if (decodedParams.toString()) {
+            // Google検索形式のようにパラメータをデコードしたまま表示
+            const pairs = [];
+            for (const [key, value] of decodedParams.entries()) {
+                pairs.push(`${key}=${value}`);
+            }
+            decodedSearch = '?' + pairs.join('&');
+        }
+        
+        // デコードしたURLを構築
+        const displayUrl = `${urlObj.protocol}//${urlObj.host}${decodedPath}${decodedSearch}${urlObj.hash}`;
+        return displayUrl;
+    } catch (error) {
+        console.warn('URL decode error:', error);
+        return url; // エラーの場合は元のURLを返す
     }
 }
 
