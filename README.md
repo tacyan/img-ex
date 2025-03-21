@@ -14,8 +14,8 @@ Webページから画像を抽出し、一括ダウンロードできるツー�
 
 ```bash
 # リポジトリのクローン
-git clone https://github.com/yourusername/image-extractor.git
-cd image-extractor
+git clone https://github.com/tacyan/img-ex.git
+cd img-ex
 
 # 依存パッケージのインストール
 npm install
@@ -42,6 +42,36 @@ npm start
 npm run dev
 ```
 
+## Vercelへのデプロイ方法
+
+このアプリケーションはVercelに簡単にデプロイでき、誰でもログインなしで利用できます。
+
+### 準備
+
+1. [Vercel](https://vercel.com/) にアカウント登録（GitHubアカウントでログイン可能）
+2. Vercel CLIをインストール（オプション）
+   ```bash
+   npm install -g vercel
+   ```
+
+### デプロイ方法
+
+#### GitHubからのデプロイ（推奨）
+
+1. リポジトリをGitHubにプッシュ
+2. Vercelダッシュボードで「New Project」をクリック
+3. GitHubリポジトリを選択
+4. 設定をそのまま使用し、「Deploy」をクリック
+
+#### Vercel CLIを使用したデプロイ
+
+```bash
+# プロジェクトディレクトリで実行
+vercel
+```
+
+プロンプトに従って設定を行うと、デプロイが完了します。デプロイ後、生成されたURLで誰でもアクセスできます。
+
 ## 注意事項
 
 このツールは個人利用を目的としています。著作権などの権利に配慮して使用してください。
@@ -52,3 +82,4 @@ npm run dev
 - フロントエンド: HTML, CSS, JavaScript (Vanilla)
 - バックエンド: Node.js, Express
 - ユーティリティ: JSZip, FileSaver.js, Axios 
+- デプロイ: Vercel

@@ -2,6 +2,7 @@
  * @file server.js
  * @description 画像抽出ツールのバックエンドサーバー
  * CORSの問題を回避し、Webページの取得と画像のプロキシを提供する
+ * Vercelにデプロイするための設定も含む
  */
 
 const express = require('express');
@@ -264,7 +265,12 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-// サーバー起動
-app.listen(PORT, () => {
-    console.log(`サーバーが起動しました: http://localhost:${PORT}`);
-}); 
+// 通常の起動方法（ローカル開発用）
+if (require.main === module) {
+    app.listen(PORT, () => {
+        console.log(`Server running on port ${PORT}`);
+    });
+}
+
+// Vercelのサーバーレス関数用にエクスポート
+module.exports = app; 
